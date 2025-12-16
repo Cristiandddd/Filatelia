@@ -137,6 +137,8 @@ for idx, verse_data in enumerate(tqdm(pending_verses, desc="Generando"), 1):
     text = verse_data['text']
     r2_key = verse_data['r2_key']
     
+    r2_key = r2_key.replace('bible/', 'bible/web/orion/')
+    
     temp_file = os.path.join(TEMP_AUDIO_DIR, f"{book}_c{chapter}_v{verse_num}.wav")
     
     if generate_audio(text, temp_file):
