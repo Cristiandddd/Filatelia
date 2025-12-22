@@ -1,6 +1,6 @@
 """
-Script para subir archivos de lecciones a Cloudflare R2
-Uso: python scripts/upload_lessons_to_r2.py
+Script SIMPLIFICADO para subir archivos de lecciones a Cloudflare R2
+Busca archivos en el mismo directorio que el script
 """
 
 import os
@@ -9,9 +9,9 @@ import boto3
 from pathlib import Path
 from botocore.exceptions import ClientError
 
-print("=" * 50)
-print("UPLOADER DE LECCIONES A R2")
-print("=" * 50)
+print("=" * 60)
+print("UPLOADER SIMPLIFICADO DE LECCIONES A R2")
+print("=" * 60)
 
 # Configuración R2
 R2_BUCKET = "yourbible-lessons"
@@ -20,13 +20,16 @@ R2_SECRET_KEY = os.getenv("R2_SECRET_KEY")
 R2_ENDPOINT = os.getenv("R2_ENDPOINT")
 
 if not all([R2_ACCESS_KEY, R2_SECRET_KEY, R2_ENDPOINT]):
-    print("ERROR: Faltan variables de entorno R2")
-    print("Requeridas: R2_ACCESS_KEY, R2_SECRET_KEY, R2_ENDPOINT")
+    print("❌ ERROR: Faltan variables de entorno R2")
+    print("   Configura estas variables antes de ejecutar:")
+    print("   export R2_ACCESS_KEY='tu_key'")
+    print("   export R2_SECRET_KEY='tu_secret'")
+    print("   export R2_ENDPOINT='https://tu_id.r2.cloudflarestorage.com'")
     sys.exit(1)
 
 # Conectar a R2
 try:
-    s3_client = boto3.client(
+    s3 = boto3.client(
         's3',
         endpoint_url=R2_ENDPOINT,
         aws_access_key_id=R2_ACCESS_KEY,
@@ -34,135 +37,130 @@ try:
         region_name='auto'
     )
     
-    s3_client.head_bucket(Bucket=R2_BUCKET)
-    print(f"✓ Conectado a R2: {R2_BUCKET}\n")
+    # Verificar conexión
+    s3.head_bucket(Bucket=R2_BUCKET)
+    print(f"✅ Conectado a R2: {R2_BUCKET}")
+    
 except ClientError as e:
-    print(f"✗ Error conectando a R2: {e}")
+    print(f"❌ Error conectando a R2: {e}")
+    print("\n💡 Soluciones:")
+    print("1. Verifica que el bucket 'yourbible-lessons' existe")
+    print("2. Verifica tus credenciales R2")
+    print("3. Verifica el endpoint de R2")
     sys.exit(1)
 
-def upload_lesson_file(local_path, r2_key):
-    """
-    Sube un archivo de lección a R2
-    
-    Args:
-        local_path: Ruta local del archivo
-        r2_key: Ruta en R2 (ej: "main course/genesis/genesis-lessons-7-12.ts")
-    
-    Returns:
-        bool: True si se subió exitosamente
-    """
+def upload_file(file_path, book_name="main course"):
+    """Sube un archivo a R2"""
     try:
-        with open(local_path, 'rb') as file:
-            s3_client.put_object(
+        file_name = os.path.basename(file_path)
+        
+        # Detectar libro del nombre del archivo
+        file_lower = file_name.lower()
+        books = {
+            "genesis": "genesis",
+            "exodus": "exodus", 
+            "leviticus": "leviticus",
+            "numbers": "numbers",
+            "deuteronomy": "deuteronomy"
+        }
+        
+        detected_book = None
+        for key, value in books.items():
+            if key in file_lower:
+                detected_book = value
+                break
+        
+        if detected_book is None:
+            detected_book = "unknown"
+            print(f"⚠  No se pudo detectar el libro para: {file_name}")
+            print(f"   Usando: {detected_book}")
+        
+        # Ruta en R2
+        r2_path = f"main course/{detected_book}/{file_name}"
+        
+        # Subir archivo
+        with open(file_path, 'rb') as f:
+            s3.put_object(
                 Bucket=R2_BUCKET,
-                Key=r2_key,
-                Body=file,
+                Key=r2_path,
+                Body=f,
                 ContentType='text/typescript'
             )
-        print(f"✓ Subido: {r2_key}")
+        
+        file_size_kb = os.path.getsize(file_path) / 1024
+        print(f"✅ Subido: {file_name}")
+        print(f"   Ruta R2: {r2_path}")
+        print(f"   Tamaño: {file_size_kb:.1f} KB")
         return True
+        
     except Exception as e:
-        print(f"✗ Error subiendo {r2_key}: {e}")
+        print(f"❌ Error subiendo {file_path}: {e}")
         return False
 
-def upload_lessons_from_directory(local_dir, course_name="main course"):
-    """
-    Sube todos los archivos .ts de un directorio a R2
+def main():
+    """Función principal"""
+    # Directorio actual (donde está este script)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    print(f"\n📂 Directorio actual: {current_dir}")
     
-    Args:
-        local_dir: Directorio local con los archivos de lecciones
-        course_name: Nombre del curso (default: "main course")
+    # Buscar archivos .ts
+    ts_files = []
+    for ext in [".ts", ".TS"]:
+        ts_files.extend(list(Path(current_dir).glob(f"*{ext}")))
     
-    Returns:
-        tuple: (exitosos, fallidos)
-    """
-    local_path = Path(local_dir)
+    if not ts_files:
+        print("\n🔍 Buscando en directorio actual...")
+        for item in os.listdir(current_dir):
+            if item.lower().endswith('.ts'):
+                ts_files.append(Path(current_dir) / item)
     
-    if not local_path.exists():
-        print(f"✗ El directorio no existe: {local_dir}")
-        return 0, 0
+    if not ts_files:
+        print("❌ No se encontraron archivos .ts en el directorio actual")
+        print("\n💡 Coloca los archivos .ts en la misma carpeta que este script")
+        return
     
-    # Buscar todos los archivos .ts
-    lesson_files = list(local_path.glob("**/*.ts"))
+    print(f"\n📄 Encontrados {len(ts_files)} archivos .ts:")
+    for i, file in enumerate(ts_files, 1):
+        print(f"   {i:2d}. {file.name}")
     
-    if not lesson_files:
-        print(f"✗ No se encontraron archivos .ts en: {local_dir}")
-        return 0, 0
+    # Preguntar al usuario
+    print("\n" + "-"*60)
+    choice = input("¿Subir TODOS estos archivos? (s/n): ").strip().lower()
     
-    print(f"Encontrados {len(lesson_files)} archivos de lecciones\n")
+    if choice != 's':
+        print("❌ Operación cancelada")
+        return
+    
+    print("\n" + "="*60)
+    print("INICIANDO SUBIDA...")
+    print("="*60)
     
     successful = 0
     failed = 0
     
-    for lesson_file in lesson_files:
-        # Determinar el libro desde el nombre del archivo
-        # Ej: genesis-lessons-7-12.ts -> genesis
-        file_name = lesson_file.name
-        
-        if file_name.startswith("genesis"):
-            book = "genesis"
-        elif file_name.startswith("exodus"):
-            book = "exodus"
-        elif file_name.startswith("leviticus"):
-            book = "leviticus"
-        elif file_name.startswith("numbers"):
-            book = "numbers"
-        elif file_name.startswith("deuteronomy"):
-            book = "deuteronomy"
-        else:
-            # Intentar extraer el libro del nombre del archivo
-            parts = file_name.split("-")
-            book = parts[0] if parts else "unknown"
-        
-        # Construir la ruta en R2
-        r2_key = f"{course_name}/{book}/{file_name}"
-        
-        if upload_lesson_file(lesson_file, r2_key):
+    for file_path in ts_files:
+        print(f"\n📤 Procesando: {file_path.name}")
+        if upload_file(file_path):
             successful += 1
         else:
             failed += 1
     
-    return successful, failed
+    # Resultado final
+    print("\n" + "="*60)
+    print("RESUMEN DE SUBIDA:")
+    print("="*60)
+    
+    if successful > 0:
+        print(f"✅ Archivos subidos exitosamente: {successful}")
+    
+    if failed > 0:
+        print(f"❌ Archivos con error: {failed}")
+    
+    if successful == 0:
+        print("⚠  No se subió ningún archivo")
+    
+    print(f"\n📊 Total procesados: {len(ts_files)}")
+    print("="*60)
 
-def upload_single_file(local_file, book_name, course_name="main course"):
-    """
-    Sube un solo archivo de lección a R2
-    
-    Args:
-        local_file: Ruta del archivo local
-        book_name: Nombre del libro (ej: "genesis")
-        course_name: Nombre del curso (default: "main course")
-    
-    Returns:
-        bool: True si se subió exitosamente
-    """
-    local_path = Path(local_file)
-    
-    if not local_path.exists():
-        print(f"✗ El archivo no existe: {local_file}")
-        return False
-    
-    file_name = local_path.name
-    r2_key = f"{course_name}/{book_name}/{file_name}"
-    
-    return upload_lesson_file(local_path, r2_key)
-
-# Ejemplos de uso
 if __name__ == "__main__":
-    print("OPCIONES DE USO:")
-    print("-" * 50)
-    print()
-    print("1. Subir un directorio completo:")
-    print("   lessons_dir = 'path/to/lessons'")
-    print("   successful, failed = upload_lessons_from_directory(lessons_dir)")
-    print()
-    print("2. Subir un archivo individual:")
-    print("   upload_single_file('genesis-lessons-7-12.ts', 'genesis')")
-    print()
-    print("-" * 50)
-    print()
-    
-    # EJEMPLO: Descomentar para subir archivos
-    # successful, failed = upload_lessons_from_directory("./lessons")
-    # print(f"\n✓ Exitosos: {successful}")
-    # print(f"✗ Fallidos: {failed}")
+    main()
